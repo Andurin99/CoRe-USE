@@ -55,12 +55,12 @@ class MLP(nn.Module):
         return dout
 
 class CSP_Classifier(nn.Module):
-    def __init__(self, text_base_model_name, keyword_base_model,tf_heads, tf_layers, dropout, topic_num, sat_num=5):
+    def __init__(self, text_base_model_name, keyword_base_model,heads, layers, dropout, topic_num, sat_num=5):
         super(CSP_Classifier, self).__init__()
         self.turn_encoder = BaseModelBackbone(model_name=text_base_model_name)
         self.keyword_encoder = keyword_base_model
         d_model = self.turn_encoder.d_model
-        self.dialogue_encoder = TransformerEncoder(d_model*2, d_model*4, tf_heads, tf_layers, dropout)
+        self.dialogue_encoder = TransformerEncoder(d_model*2, d_model*4, heads, layers, dropout)
         self.layer_norm = nn.LayerNorm(d_model*2, eps=1e-6)
         self.dim_reduction = nn.Linear(d_model*2, d_model)
         self.topic_embedding = nn.Embedding(topic_num, 768)
@@ -230,85 +230,16 @@ def data_collate(data):
         'mask':masks.ne(-1)        
     }
 
-def dataloader_construction():
-    test_data = {"dialogue": [], "topic": [],"label": [], "Q_keywords":[], "A_keywords":[]}
-    train_data = {"dialogue": [], "topic": [],"label": [], "Q_keywords":[], "A_keywords":[]}
-    file_folders = {'label_0','label_25','label_50','label_75','label_100'}
-    start_index = 0
-
-    for file_folder in file_folders:
-        for i in tqdm(range(1, 2500)):
-            file_path = "KG_enhanced_CSP/datasets/train/dialogues_added_keywords_5/{}/dialogue_{}.csv".format(file_folder, i)
-            if not os.path.exists(file_path):
-                continue
-            df = pd.read_csv(file_path)
-            topic = 0
-            keywords = df["keywords"][0]
-            first_topic = df["item_first_cate_cd"][0]
-
-            if first_topic in topic_index.keys():
-                topic = topic_index[first_topic]
-            else:
-                topic_index[first_topic] = start_index
-                topic = start_index
-                start_index += 1
-
-            Q_list, A_list = get_keywords(keywords)
-            processed_Q_keywords = [preprocess_keywords(Q_text) for Q_text in Q_list]
-            processed_A_keywords = [preprocess_keywords(A_text) for A_text in A_list]
-            processed_dialogue = [preprocess_text(dialogue) for dialogue in df["content"]]
-            dialogue_label = int(df["degree"].tolist()[0] / 25)
-            train_data["Q_keywords"].append(processed_Q_keywords)
-            train_data["A_keywords"].append(processed_A_keywords)
-            train_data["dialogue"].append(processed_dialogue)
-            train_data["topic"].append(topic)
-            train_data["label"].append(dialogue_label)
-
-    for file_folder in file_folders:
-        for i in tqdm(range(1, 700)):
-            file_path = "KG_enhanced_CSP/datasets/test/dialogues_added_keywords_5/{}/dialogue_{}.csv".format(file_folder, i)
-            if not os.path.exists(file_path):
-                continue
-            df = pd.read_csv(file_path)
-            topic = 0
-            keywords = df["keywords"][0]
-            first_topic = df["item_first_cate_cd"][0]
-
-            if first_topic in topic_index.keys():
-                topic = topic_index[first_topic]
-            else:
-                topic_index[first_topic] = start_index
-                topic = start_index
-                start_index += 1
-
-            Q_list, A_list = get_keywords(keywords)
-            processed_Q_keywords = [preprocess_keywords(Q_text) for Q_text in Q_list]
-            processed_A_keywords = [preprocess_keywords(A_text) for A_text in A_list]
-            processed_dialogue = [preprocess_text(dialogue) for dialogue in df["content"]]
-            dialogue_label = int(df["degree"].tolist()[0] / 25)
-            test_data["Q_keywords"].append(processed_Q_keywords)
-            test_data["A_keywords"].append(processed_A_keywords)
-            test_data["dialogue"].append(processed_dialogue)
-            test_data["topic"].append(topic)
-            test_data["label"].append(dialogue_label)
-
-    train_data = Dataset.from_dict(train_data)
-    test_data = Dataset.from_dict(test_data)
-
-    train_dataloader = DataLoader(train_data, batch_size=4, shuffle=True, collate_fn=data_collate)
-    test_dataloader = DataLoader(test_data, batch_size=1, shuffle=True, collate_fn=data_collate)
-    return train_dataloader, test_dataloader
-
 def load_data():
     valid_data = {"dialogue": [], "topic": [],"label": [], "Q_keywords":[], "A_keywords":[], "mask":[]}
     train_data = {"dialogue": [], "topic": [],"label": [], "Q_keywords":[], "A_keywords":[], "mask":[]}
     
-    valid_data_path = '/home/liuyaochang/CSP_exps/KG_enhanced_CSP/datasets/test/data_turn/dialogue_{}.csv'
-    train_data_path = '/home/liuyaochang/CSP_exps/KG_enhanced_CSP/datasets/train/data_turn/dialogue_{}.csv'
+    valid_data_path = 'path_to_data/valid/data_turn/dialogue_{}.csv'
+    train_data_path = 'path_to_data/train/data_turn/dialogue_{}.csv'
     
     start_index = 0
     
-    for i in tqdm(range(1, 7000)):
+    for i in tqdm(range(1, 6000)):
         file_path = train_data_path.format(i)
         if not os.path.exists(file_path):
             continue
@@ -336,7 +267,7 @@ def load_data():
         train_data['mask'].append(list(np.arange(len(df['sent']))))
         train_data["label"].append(dialogue_label)
     
-    for i in tqdm(range(1, 2000)):
+    for i in tqdm(range(1, 1000)):
         file_path = valid_data_path.format(i)
         if not os.path.exists(file_path):
             continue
@@ -390,24 +321,24 @@ if __name__ == '__main__':
     topic_index = {}
     
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tf_layers", default=3, type=int,
-                    help="Number of layers in Hawkes transformer.")
-    parser.add_argument("--tf_heads", default=12, type=int,
-                    help="Number of layers in Hawkes transformer.")
+    parser.add_argument("--layers", default=3, type=int,
+                    help="Number of transformer layers.")
+    parser.add_argument("--heads", default=12, type=int,
+                    help="Number of transformer heads.")
 
     args = parser.parse_args()
     
-    tf_layers = args.tf_layers
-    tf_heads = args.tf_heads
+    layers = args.layers
+    heads = args.heads
     
 
-    print('tf layers', args.tf_layers)
-    print('tf heads', args.tf_heads)
+    print('layers', args.layers)
+    print('heads', args.heads)
     
-    with open("/home/liuyaochang/CSP_exps/KG_enhanced_CSP/baselines/ASAP-main/exp_outputs.txt", "a") as file:
-        file.write("***** CSP_model_transformer_encoder Our data Run training *****\n")
-        file.write("TF_heads:{}\n".format(tf_heads))
-        file.write("TF_layers:{}\n".format(tf_layers))
+    with open("exp_outputs.txt", "a") as file:
+        file.write("***** CoRe-USE training *****\n")
+        file.write("TF_heads:{}\n".format(heads))
+        file.write("TF_layers:{}\n".format(layers))
         file.write("Seed:{}\n".format(seed))
 
     tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
@@ -431,7 +362,7 @@ if __name__ == '__main__':
 
     backbone = backbone_model
     train_dataloader, valid_dataloader = load_data()
-    model = CSP_Classifier(text_base_model_name='bert-base-chinese', keyword_base_model=backbone_model, topic_num=len(topic_index), tf_heads=tf_heads, tf_layers=tf_layers, dropout=dropout, sat_num=sat_num).to('cuda:0')
+    model = CSP_Classifier(text_base_model_name='bert-base-chinese', keyword_base_model=backbone_model, topic_num=len(topic_index), heads=heads, layers=layers, dropout=dropout, sat_num=sat_num).to('cuda:0')
 
     optimizer = optim.Adam(model.parameters(), lr=1e-5)
     scheduler = StepLR(optimizer, step_size=4, gamma=0.5)
@@ -485,15 +416,12 @@ if __name__ == '__main__':
    
         if (res_1 + res_2 +res_3) / 3 > avg_res:
             avg_res = (res_1 + res_2 +res_3) / 3
-            torch.save(model, 'KG_enhanced_CSP/model_hub/CSP_multiheads_our_data_tf_heads{}_tf_layers{}_seed{}.pth'.format(tf_heads, tf_layers, seed))
+            torch.save(model, 'model_hub/CoRe-USE_heads{}_layers{}_seed{}.pth'.format(heads, layers, seed))
         
-        with open("/home/liuyaochang/CSP_exps/KG_enhanced_CSP/baselines/ASAP-main/exp_outputs.txt", "a") as file:
+        with open("exp_outputs.txt", "a") as file:
             file.write("Epoch:{}\n".format(epoch))
             file.write(report)
             file.write("END REPORT\n")
-
-        print("Epoch:{} losses".format(epoch), total_loss)
-        print("Epoch:{}".format(epoch), report)
 
     
 
